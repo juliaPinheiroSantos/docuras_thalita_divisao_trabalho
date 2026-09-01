@@ -1,8 +1,7 @@
-import { getChatGPTUser } from '@/app/chatgpt-auth';
 import { getPhoneSessionMember } from '@/app/phone-auth';
 import { Dashboard } from '@/components/dashboard';
 import { PhoneLogin } from '@/components/phone-login';
-import { getOrCreateMembership, listEmployees, listTasksForDate, type Member } from '@/db/store';
+import { listAccessCredentials, listEmployees, listTasksForDate } from '@/db/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,11 +13,12 @@ export default async function Home({ searchParams }: HomeProps) {
   const params = (await searchParams) ?? {};
   const date = validDate(singleValue(params.date)) ?? todayInSaoPaulo();
   const notice = singleValue(params.aviso);
-  const membership = await currentMember();
+  const membership = await getPhoneSessionMember();
 
   if (!membership) return <PhoneLogin notice={notice} />;
 
   const employees = membership.role === 'owner' ? await listEmployees() : [];
+  const accessCredentials = membership.role === 'owner' ? await listAccessCredentials() : [];
   const tasks = await listTasksForDate(date, membership.role === 'employee' ? membership : undefined);
   const cards = membership.role === 'owner'
     ? employees.map((employee) => ({
@@ -32,6 +32,7 @@ export default async function Home({ searchParams }: HomeProps) {
       currentUser={membership}
       cards={cards}
       employees={employees}
+      accessCredentials={accessCredentials}
       date={date}
       dateLabel={formatDate(date)}
       previousDate={shiftDate(date, -1)}
@@ -39,16 +40,6 @@ export default async function Home({ searchParams }: HomeProps) {
       notice={notice}
     />
   );
-}
-
-async function currentMember(): Promise<Member | null> {
-  const sessionMember = await getPhoneSessionMember();
-  if (sessionMember) return sessionMember;
-
-  const chatGPTUser = await getChatGPTUser();
-  if (!chatGPTUser) return null;
-  const membership = await getOrCreateMembership(chatGPTUser);
-  return membership?.role === 'owner' ? membership : null;
 }
 
 function singleValue(value: string | string[] | undefined) {

@@ -2,11 +2,12 @@ import { cookies } from 'next/headers';
 
 import { getD1 } from '@/db';
 import { ensureSchema, findActiveMemberById, type Member } from '@/db/store';
+import { isOwnerPhone } from '@/lib/access';
 
 const SESSION_COOKIE = 'docuras_phone_session';
 const SESSION_DAYS = 30;
 
-export async function createPhoneSession(memberId: string) {
+export async function createPhoneSession(memberId: string, credentialId: string) {
   await ensureSchema();
   const token = randomToken();
   const tokenHash = await hashToken(token);
@@ -16,9 +17,9 @@ export async function createPhoneSession(memberId: string) {
 
   await db.batch([
     db.prepare('DELETE FROM sessions WHERE expires_at <= ?').bind(now.toISOString()),
-    db.prepare(`INSERT INTO sessions (id, token_hash, user_id, expires_at, created_at)
-      VALUES (?, ?, ?, ?, ?)`)
-      .bind(crypto.randomUUID(), tokenHash, memberId, expiresAt.toISOString(), now.toISOString()),
+    db.prepare(`INSERT INTO sessions (id, token_hash, user_id, credential_id, expires_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), tokenHash, memberId, credentialId, expiresAt.toISOString(), now.toISOString()),
   ]);
 
   const cookieStore = await cookies();
@@ -38,12 +39,19 @@ export async function getPhoneSessionMember(): Promise<Member | null> {
 
   await ensureSchema();
   const session = await getD1()
-    .prepare('SELECT user_id FROM sessions WHERE token_hash = ? AND expires_at > ? LIMIT 1')
+    .prepare(`SELECT s.user_id, c.phone
+      FROM sessions s
+      JOIN login_credentials c ON c.id = s.credential_id
+      WHERE s.token_hash = ? AND s.expires_at > ? AND c.password_hash IS NOT NULL
+      LIMIT 1`)
     .bind(await hashToken(token), new Date().toISOString())
-    .first<{ user_id: string }>();
+    .first<{ user_id: string; phone: string }>();
   if (!session) return null;
 
-  return findActiveMemberById(session.user_id);
+  const member = await findActiveMemberById(session.user_id);
+  if (!member) return null;
+  if (member.role === 'owner' && !isOwnerPhone(session.phone)) return null;
+  return member;
 }
 
 export async function clearPhoneSession() {

@@ -3,38 +3,57 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
-import { chatGPTSignOutPath, getChatGPTUser } from '@/app/chatgpt-auth';
+import { getChatGPTUser } from '@/app/chatgpt-auth';
 import { clearPhoneSession, createPhoneSession, getPhoneSessionMember } from '@/app/phone-auth';
 import {
   createEmployee,
   createTask,
   deactivateEmployee,
   deleteTask,
-  findActiveMemberByPhone,
+  findCredentialLoginByPhone,
   getOrCreateMembership,
+  setMemberCredential,
   toggleTask,
-  updateMemberPhone,
   type Member,
 } from '@/db/store';
+import { isOwnerPhone, normalizePhone, validPhone } from '@/lib/access';
+import { assertValidPassword, createPasswordRecord, verifyPassword } from '@/lib/password';
 
 const JOB_TITLES = new Set(['Produção', 'Atendimento + produção']);
 
 export async function phoneLoginAction(formData: FormData) {
   const phone = normalizePhone(textValue(formData, 'phone'));
-  if (!validPhone(phone)) redirect('/?aviso=telefone-nao-encontrado');
+  const password = textValue(formData, 'password');
+  if (!validPhone(phone) || !validPassword(password)) redirect('/?aviso=login-invalido');
 
-  const member = await findActiveMemberByPhone(phone);
-  if (!member) redirect('/?aviso=telefone-nao-encontrado');
+  const login = await findCredentialLoginByPhone(phone);
+  const passwordMatches = await verifyPassword(password, login?.passwordHash, login?.passwordSalt);
+  if (!login || !passwordMatches) redirect('/?aviso=login-invalido');
 
-  await createPhoneSession(member.id);
+  await createPhoneSession(login.member.id, login.credentialId);
   redirect('/');
 }
 
 export async function logoutAction() {
   await clearPhoneSession();
-  const chatGPTUser = await getChatGPTUser();
-  if (chatGPTUser) redirect(chatGPTSignOutPath('/?aviso=sessao-encerrada'));
   redirect('/?aviso=sessao-encerrada');
+}
+
+export async function setupOwnerPasswordAction(formData: FormData) {
+  const chatGPTUser = await getChatGPTUser();
+  if (!chatGPTUser) throw new Error('Acesso não autorizado.');
+  const owner = await getOrCreateMembership(chatGPTUser);
+  if (owner?.role !== 'owner') throw new Error('Acesso exclusivo do proprietário.');
+
+  const phone = normalizePhone(textValue(formData, 'phone'));
+  const password = textValue(formData, 'password');
+  if (!isOwnerPhone(phone) || !validPassword(password)) {
+    redirect('/configurar-acesso?aviso=dados-invalidos');
+  }
+  const record = await createPasswordRecord(password);
+  await setMemberCredential({ memberId: owner.id, phone, passwordHash: record.hash, passwordSalt: record.salt });
+  revalidatePath('/configurar-acesso');
+  redirect('/configurar-acesso?aviso=senha-atualizada');
 }
 
 export async function createTaskAction(formData: FormData) {
@@ -60,7 +79,6 @@ export async function toggleTaskAction(formData: FormData) {
   const taskId = textValue(formData, 'taskId');
   const taskDate = validDate(textValue(formData, 'taskDate'));
   if (!taskId || !taskDate) redirect('/');
-
   await toggleTask(taskId, actor);
   revalidatePath('/');
   redirect(`/?date=${taskDate}`);
@@ -71,7 +89,6 @@ export async function deleteTaskAction(formData: FormData) {
   const taskId = textValue(formData, 'taskId');
   const taskDate = validDate(textValue(formData, 'taskDate'));
   if (!taskId || !taskDate) redirect('/');
-
   await deleteTask(taskId);
   revalidatePath('/');
   redirect(`/?date=${taskDate}&aviso=tarefa-excluida`);
@@ -81,15 +98,17 @@ export async function addEmployeeAction(formData: FormData) {
   await requireOwnerActor();
   const name = textValue(formData, 'name').slice(0, 80);
   const phone = normalizePhone(textValue(formData, 'phone'));
+  const password = textValue(formData, 'password');
   const jobTitle = textValue(formData, 'jobTitle');
   const taskDate = validDate(textValue(formData, 'taskDate'));
-  if (!name || !validPhone(phone) || !JOB_TITLES.has(jobTitle)) {
+  if (!name || !validPhone(phone) || isOwnerPhone(phone) || !validPassword(password) || !JOB_TITLES.has(jobTitle)) {
     redirect(`/?date=${taskDate || ''}&aviso=dados-invalidos`);
   }
 
   let notice = 'funcionario-adicionado';
   try {
-    await createEmployee({ name, phone, jobTitle });
+    const record = await createPasswordRecord(password);
+    await createEmployee({ name, phone, jobTitle, passwordHash: record.hash, passwordSalt: record.salt });
   } catch {
     notice = 'erro-funcionario';
   }
@@ -97,20 +116,23 @@ export async function addEmployeeAction(formData: FormData) {
   redirect(`/?date=${taskDate || ''}&aviso=${notice}`);
 }
 
-export async function updateMemberPhoneAction(formData: FormData) {
-  await requireOwnerActor();
+export async function updateMemberAccessAction(formData: FormData) {
+  const owner = await requireOwnerActor();
   const memberId = textValue(formData, 'memberId');
   const phone = normalizePhone(textValue(formData, 'phone'));
+  const password = textValue(formData, 'password');
   const taskDate = validDate(textValue(formData, 'taskDate'));
-  if (!memberId || !validPhone(phone)) {
+  const ownerCredential = memberId === owner.id;
+  if (!memberId || !validPhone(phone) || !validPassword(password) || (ownerCredential && !isOwnerPhone(phone))) {
     redirect(`/?date=${taskDate || ''}&aviso=dados-invalidos`);
   }
 
-  let notice = 'telefone-atualizado';
+  let notice = 'acesso-atualizado';
   try {
-    await updateMemberPhone(memberId, phone);
+    const record = await createPasswordRecord(password);
+    await setMemberCredential({ memberId, phone, passwordHash: record.hash, passwordSalt: record.salt });
   } catch {
-    notice = 'erro-telefone';
+    notice = 'erro-acesso';
   }
   revalidatePath('/');
   redirect(`/?date=${taskDate || ''}&aviso=${notice}`);
@@ -121,7 +143,6 @@ export async function deactivateEmployeeAction(formData: FormData) {
   const memberId = textValue(formData, 'memberId');
   const taskDate = validDate(textValue(formData, 'taskDate'));
   if (!memberId) redirect('/');
-
   await deactivateEmployee(memberId);
   revalidatePath('/');
   redirect(`/?date=${taskDate || ''}&aviso=funcionario-removido`);
@@ -129,14 +150,8 @@ export async function deactivateEmployeeAction(formData: FormData) {
 
 async function requireActor(): Promise<Member> {
   const sessionMember = await getPhoneSessionMember();
-  if (sessionMember) return sessionMember;
-
-  const chatGPTUser = await getChatGPTUser();
-  if (chatGPTUser) {
-    const member = await getOrCreateMembership(chatGPTUser);
-    if (member?.role === 'owner') return member;
-  }
-  throw new Error('Acesso não autorizado.');
+  if (!sessionMember) throw new Error('Acesso não autorizado.');
+  return sessionMember;
 }
 
 async function requireOwnerActor() {
@@ -145,12 +160,13 @@ async function requireOwnerActor() {
   return actor;
 }
 
-function normalizePhone(value: string) {
-  return value.replace(/\D/g, '');
-}
-
-function validPhone(value: string) {
-  return /^\d{10,13}$/.test(value);
+function validPassword(value: string) {
+  try {
+    assertValidPassword(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function textValue(formData: FormData, key: string) {

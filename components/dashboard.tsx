@@ -22,9 +22,10 @@ import {
   deleteTaskAction,
   logoutAction,
   toggleTaskAction,
-  updateMemberPhoneAction,
+  updateMemberAccessAction,
 } from '@/app/actions';
-import type { Member, WorkTask } from '@/db/store';
+import type { AccessCredential, Member, WorkTask } from '@/db/store';
+import { OWNER_PHONES } from '@/lib/access';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -44,6 +45,7 @@ type DashboardProps = {
   currentUser: Member;
   cards: MemberTasks[];
   employees: Member[];
+  accessCredentials: AccessCredential[];
   date: string;
   dateLabel: string;
   previousDate: string;
@@ -54,12 +56,12 @@ type DashboardProps = {
 const notices: Record<string, string> = {
   'tarefa-adicionada': 'Tarefa adicionada à lista.',
   'tarefa-excluida': 'Tarefa excluída.',
-  'funcionario-adicionado': 'Funcionário adicionado. O acesso já está liberado pelo celular cadastrado.',
+  'funcionario-adicionado': 'Funcionário adicionado. O acesso já está liberado pelo celular e senha cadastrados.',
   'funcionario-removido': 'Funcionário removido da equipe ativa.',
-  'telefone-atualizado': 'Número de celular atualizado.',
+  'acesso-atualizado': 'Celular e senha de acesso atualizados.',
   'erro-tarefa': 'Não foi possível adicionar a tarefa. Tente novamente.',
   'erro-funcionario': 'Não foi possível adicionar. Confira se o celular já está cadastrado ou se a equipe chegou a 5 pessoas.',
-  'erro-telefone': 'Não foi possível atualizar. Confira se o celular já está cadastrado para outra pessoa.',
+  'erro-acesso': 'Não foi possível atualizar. Confira o celular e tente novamente.',
   'dados-invalidos': 'Confira os campos preenchidos e tente novamente.',
 };
 
@@ -67,6 +69,7 @@ export function Dashboard({
   currentUser,
   cards,
   employees,
+  accessCredentials,
   date,
   dateLabel,
   previousDate,
@@ -115,7 +118,7 @@ export function Dashboard({
               <div className="invisible absolute right-0 top-full z-30 mt-2 w-56 rounded-xl border border-brand/10 bg-white p-2 opacity-0 shadow-xl transition group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
                 <div className="px-2 py-2">
                   <p className="truncate text-sm font-semibold">{currentUser.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">{currentUser.phone ? formatPhone(currentUser.phone) : 'Celular não configurado'}</p>
+                  <p className="truncate text-xs text-muted-foreground">{isOwner ? 'Proprietário · acesso com senha' : currentUser.phone ? formatPhone(currentUser.phone) : 'Celular não configurado'}</p>
                 </div>
                 <form action={logoutAction}>
                   <button type="submit" className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
@@ -225,7 +228,7 @@ export function Dashboard({
             setSelectedEmployee={setSelectedEmployee}
             date={date}
           />
-          <TeamDialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen} currentUser={currentUser} employees={employees} date={date} />
+          <TeamDialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen} currentUser={currentUser} employees={employees} accessCredentials={accessCredentials} date={date} />
         </>
       ) : null}
     </main>
@@ -324,11 +327,12 @@ function TaskDialog({ open, onOpenChange, employees, selectedEmployee, setSelect
   );
 }
 
-function TeamDialog({ open, onOpenChange, currentUser, employees, date }: {
+function TeamDialog({ open, onOpenChange, currentUser, employees, accessCredentials, date }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentUser: Member;
   employees: Member[];
+  accessCredentials: AccessCredential[];
   date: string;
 }) {
   return (
@@ -336,37 +340,46 @@ function TeamDialog({ open, onOpenChange, currentUser, employees, date }: {
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Equipe</DialogTitle>
-          <DialogDescription>Cadastre até cinco funcionários. Cada acesso será vinculado ao celular informado.</DialogDescription>
+          <DialogDescription>Cadastre até cinco funcionários. Todos os acessos exigem celular e senha.</DialogDescription>
         </DialogHeader>
 
         <section className="rounded-xl border border-brand/10 bg-blush/10 p-4">
-          <h3 className="text-sm font-semibold">Seu celular de acesso</h3>
+          <h3 className="text-sm font-semibold">Acessos do proprietário</h3>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Use este número para entrar como proprietária sem depender do e-mail.
+            Somente estes três números podem criar, editar ou excluir tarefas.
           </p>
-          <form action={updateMemberPhoneAction} className="mt-3 flex gap-2">
-            <input type="hidden" name="memberId" value={currentUser.id} />
-            <input type="hidden" name="taskDate" value={date} />
-            <Input
-              name="phone"
-              type="tel"
-              inputMode="numeric"
-              autoComplete="tel"
-              required
-              maxLength={19}
-              defaultValue={currentUser.phone ? formatPhone(currentUser.phone) : ''}
-              placeholder="(00) 00000-0000"
-              aria-label="Seu número de celular"
-              className="h-10"
-            />
-            <Button type="submit" variant="outline" className="h-10 shrink-0">Salvar</Button>
-          </form>
+          <div className="mt-3 space-y-3">
+            {OWNER_PHONES.map((phone) => {
+              const credential = accessCredentials.find((item) => item.userId === currentUser.id && item.phone === phone);
+              return (
+                <form key={phone} action={updateMemberAccessAction} className="rounded-lg border border-brand/10 bg-white p-3">
+                  <input type="hidden" name="memberId" value={currentUser.id} />
+                  <input type="hidden" name="taskDate" value={date} />
+                  <input type="hidden" name="phone" value={phone} />
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium">{formatPhone(phone)}</span>
+                    <Badge variant="outline" className={credential?.passwordConfigured ? 'border-[#b8d6c3] text-[#467158]' : 'border-brand/15 text-brand'}>
+                      {credential?.passwordConfigured ? 'Senha definida' : 'Sem senha'}
+                    </Badge>
+                  </div>
+                  <div className="flex gap-2">
+                    <Input name="password" type="password" autoComplete="new-password" required minLength={6} maxLength={128} placeholder="Nova senha (mín. 6 caracteres)" aria-label={`Senha de ${formatPhone(phone)}`} className="h-9" />
+                    <Button type="submit" variant="outline" size="sm" className="h-9 shrink-0">{credential?.passwordConfigured ? 'Alterar' : 'Definir'}</Button>
+                  </div>
+                </form>
+              );
+            })}
+          </div>
         </section>
 
         {employees.length ? (
           <div className="space-y-3">
             {employees.map((employee) => (
               <div key={employee.id} className="rounded-xl border border-brand/10 p-3">
+                {(() => {
+                  const credential = accessCredentials.find((item) => item.userId === employee.id);
+                  return (
+                    <>
                 <div className="flex items-center gap-3">
                   <span className="grid size-9 shrink-0 place-items-center rounded-full bg-blush/25 text-xs font-semibold text-brand">{initials(employee.name)}</span>
                   <div className="min-w-0 flex-1">
@@ -379,7 +392,7 @@ function TeamDialog({ open, onOpenChange, currentUser, employees, date }: {
                     <Button type="submit" variant="ghost" size="icon-sm" aria-label={`Remover ${employee.name}`} className="text-muted-foreground hover:text-destructive"><Trash2 /></Button>
                   </form>
                 </div>
-                <form action={updateMemberPhoneAction} className="mt-3 flex gap-2 pl-12">
+                <form action={updateMemberAccessAction} className="mt-3 grid gap-2 pl-12 sm:grid-cols-[1fr_1fr_auto]">
                   <input type="hidden" name="memberId" value={employee.id} />
                   <input type="hidden" name="taskDate" value={date} />
                   <Input
@@ -389,13 +402,17 @@ function TeamDialog({ open, onOpenChange, currentUser, employees, date }: {
                     autoComplete="tel"
                     required
                     maxLength={19}
-                    defaultValue={employee.phone ? formatPhone(employee.phone) : ''}
+                    defaultValue={credential?.phone ? formatPhone(credential.phone) : employee.phone ? formatPhone(employee.phone) : ''}
                     placeholder="Celular de acesso"
                     aria-label={`Celular de ${employee.name}`}
                     className="h-9"
                   />
-                  <Button type="submit" variant="ghost" size="sm" className="h-9 shrink-0 text-brand">Salvar</Button>
+                  <Input name="password" type="password" autoComplete="new-password" required minLength={6} maxLength={128} placeholder="Nova senha" aria-label={`Nova senha de ${employee.name}`} className="h-9" />
+                  <Button type="submit" variant="ghost" size="sm" className="h-9 shrink-0 text-brand">Salvar acesso</Button>
                 </form>
+                    </>
+                  );
+                })()}
               </div>
             ))}
           </div>
@@ -406,6 +423,7 @@ function TeamDialog({ open, onOpenChange, currentUser, employees, date }: {
             <input type="hidden" name="taskDate" value={date} />
             <label className="grid gap-1.5 text-sm font-medium">Nome<Input name="name" required maxLength={80} placeholder="Nome completo" className="h-10" disabled={employees.length >= 5} /></label>
             <label className="grid gap-1.5 text-sm font-medium">Celular de acesso<Input name="phone" type="tel" inputMode="numeric" autoComplete="tel" required maxLength={19} placeholder="(00) 00000-0000" className="h-10" disabled={employees.length >= 5} /></label>
+            <label className="grid gap-1.5 text-sm font-medium">Senha inicial<Input name="password" type="password" autoComplete="new-password" required minLength={6} maxLength={128} placeholder="Mínimo de 6 caracteres" className="h-10" disabled={employees.length >= 5} /></label>
             <label className="grid gap-1.5 text-sm font-medium">Função
               <select name="jobTitle" className="h-10 w-full rounded-lg border border-input bg-white px-3 text-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/20" disabled={employees.length >= 5}>
                 <option value="Produção">Produção</option>

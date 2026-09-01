@@ -21,17 +21,36 @@ export const users = sqliteTable(
   ],
 );
 
+export const loginCredentials = sqliteTable(
+  'login_credentials',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => users.id),
+    phone: text('phone').notNull(),
+    passwordHash: text('password_hash'),
+    passwordSalt: text('password_salt'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_login_credentials_phone').on(table.phone),
+    index('idx_login_credentials_user_id').on(table.userId),
+  ],
+);
+
 export const sessions = sqliteTable(
   'sessions',
   {
     id: text('id').primaryKey(),
     tokenHash: text('token_hash').notNull(),
     userId: text('user_id').notNull().references(() => users.id),
+    credentialId: text('credential_id').references(() => loginCredentials.id),
     expiresAt: text('expires_at').notNull(),
     createdAt: text('created_at').notNull(),
   },
   (table) => [
     uniqueIndex('idx_sessions_token_hash').on(table.tokenHash),
+    index('idx_sessions_credential_id').on(table.credentialId),
     index('idx_sessions_expires_at').on(table.expiresAt),
   ],
 );

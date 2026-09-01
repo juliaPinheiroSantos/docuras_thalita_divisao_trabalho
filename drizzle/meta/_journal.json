@@ -15,6 +15,13 @@
       "when": 1788302179641,
       "tag": "0001_brief_maria_hill",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788303406269,
+      "tag": "0002_clammy_rawhide_kid",
+      "breakpoints": true
     }
   ]
 }

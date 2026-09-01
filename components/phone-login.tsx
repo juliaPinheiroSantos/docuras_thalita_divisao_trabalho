@@ -1,4 +1,4 @@
-import { LockKeyhole, Phone } from 'lucide-react';
+import { KeyRound, LockKeyhole, Phone } from 'lucide-react';
 
 import { phoneLoginAction } from '@/app/actions';
 import { Button } from '@/components/ui/button';
@@ -15,13 +15,13 @@ export function PhoneLogin({ notice }: { notice?: string }) {
           </span>
           <h1 className="mt-5 font-heading text-2xl font-semibold">Acesso da equipe</h1>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Digite o celular cadastrado pelo proprietário para ver sua lista de tarefas.
+            Digite o celular cadastrado e a sua senha para ver a lista de tarefas.
           </p>
         </div>
 
-        {notice === 'telefone-nao-encontrado' ? (
+        {notice === 'login-invalido' ? (
           <output className="mt-5 block rounded-xl border border-brand/15 bg-blush/15 px-4 py-3 text-sm text-brand">
-            Número não encontrado. Confira o celular informado ou fale com o proprietário.
+            Celular ou senha incorretos. Confira os dados ou fale com o proprietário.
           </output>
         ) : notice === 'sessao-encerrada' ? (
           <output className="mt-5 block rounded-xl border border-[#b8d6c3] bg-[#eef7f1] px-4 py-3 text-sm text-[#467158]">
@@ -30,11 +30,12 @@ export function PhoneLogin({ notice }: { notice?: string }) {
         ) : null}
 
         <form action={phoneLoginAction} className="mt-6 space-y-4">
-          <label className="grid gap-2 text-sm font-medium">
+          <label className="grid gap-2 text-sm font-medium" htmlFor="login-phone">
             Número de celular
             <span className="relative">
               <Phone className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                id="login-phone"
                 name="phone"
                 type="tel"
                 inputMode="numeric"
@@ -47,11 +48,31 @@ export function PhoneLogin({ notice }: { notice?: string }) {
               />
             </span>
           </label>
+          <label className="grid gap-2 text-sm font-medium" htmlFor="login-password">
+            Senha
+            <span className="relative">
+              <KeyRound className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="login-password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                minLength={6}
+                maxLength={128}
+                placeholder="Digite sua senha"
+                className="h-12 pl-10 text-base"
+              />
+            </span>
+          </label>
           <Button type="submit" size="lg" className="h-12 w-full rounded-xl">Entrar</Button>
         </form>
         <p className="mt-5 text-center text-xs leading-5 text-muted-foreground">
           Este acesso é exclusivo para a equipe da Doçuras da Thalita.
         </p>
+        <a href="/configurar-acesso" className="mt-2 block text-center text-xs font-medium text-brand hover:underline">
+          Configurar senhas do proprietário
+        </a>
       </section>
     </main>
   );
