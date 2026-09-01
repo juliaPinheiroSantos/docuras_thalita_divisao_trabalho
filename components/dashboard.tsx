@@ -8,7 +8,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Clock3,
   LogOut,
   Plus,
   Trash2,
@@ -138,7 +137,7 @@ export function Dashboard({
             <div className="mb-2 flex items-center gap-2 text-sm font-medium text-brand">
               <CalendarDays className="size-4" /> {dateLabel}
             </div>
-            <h1 className="font-heading text-3xl font-semibold tracking-[-0.035em] sm:text-4xl">
+            <h1 className="font-heading text-3xl font-bold tracking-[-0.02em] sm:text-4xl">
               {isOwner ? 'Tarefas do dia' : 'Minha lista de hoje'}
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
@@ -164,7 +163,7 @@ export function Dashboard({
           ) : null}
         </section>
 
-        <section className="mb-7 grid gap-3 sm:grid-cols-3">
+        <section className="mb-7 grid gap-3 sm:grid-cols-2">
           <div className="flex items-center gap-3 rounded-2xl border border-brand/10 bg-white p-4 shadow-[0_8px_24px_rgb(90_45_45/4%)]">
             <span className="grid size-10 place-items-center rounded-xl bg-blush/25 text-brand"><Users className="size-5" /></span>
             <div>
@@ -177,13 +176,6 @@ export function Dashboard({
             <div>
               <p className="text-2xl font-semibold tracking-tight">{completed} <span className="text-sm font-normal text-muted-foreground">de {allTasks.length}</span></p>
               <p className="text-xs text-muted-foreground">tarefas concluídas</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 rounded-2xl border border-brand/10 bg-white p-4 shadow-[0_8px_24px_rgb(90_45_45/4%)]">
-            <span className="grid size-10 place-items-center rounded-xl bg-[#fff0dc] text-[#9b632a]"><Clock3 className="size-5" /></span>
-            <div>
-              <p className="text-sm font-semibold">07:00 às 16:00</p>
-              <p className="text-xs text-muted-foreground">terça a sábado · sujeito à demanda</p>
             </div>
           </div>
         </section>
