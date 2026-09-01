@@ -6,6 +6,7 @@ export const users = sqliteTable(
     id: text('id').primaryKey(),
     authUserId: text('auth_user_id'),
     email: text('email').notNull(),
+    phone: text('phone'),
     name: text('name').notNull(),
     role: text('role', { enum: ['owner', 'employee'] }).notNull(),
     jobTitle: text('job_title').notNull(),
@@ -15,7 +16,23 @@ export const users = sqliteTable(
   (table) => [
     uniqueIndex('idx_users_email').on(table.email),
     uniqueIndex('idx_users_auth_user_id').on(table.authUserId),
+    uniqueIndex('idx_users_phone').on(table.phone),
     index('idx_users_role_active').on(table.role, table.active),
+  ],
+);
+
+export const sessions = sqliteTable(
+  'sessions',
+  {
+    id: text('id').primaryKey(),
+    tokenHash: text('token_hash').notNull(),
+    userId: text('user_id').notNull().references(() => users.id),
+    expiresAt: text('expires_at').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_sessions_token_hash').on(table.tokenHash),
+    index('idx_sessions_expires_at').on(table.expiresAt),
   ],
 );
 

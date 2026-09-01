@@ -20,7 +20,9 @@ import {
   createTaskAction,
   deactivateEmployeeAction,
   deleteTaskAction,
+  logoutAction,
   toggleTaskAction,
+  updateMemberPhoneAction,
 } from '@/app/actions';
 import type { Member, WorkTask } from '@/db/store';
 import { Badge } from '@/components/ui/badge';
@@ -52,10 +54,12 @@ type DashboardProps = {
 const notices: Record<string, string> = {
   'tarefa-adicionada': 'Tarefa adicionada à lista.',
   'tarefa-excluida': 'Tarefa excluída.',
-  'funcionario-adicionado': 'Funcionário adicionado. O acesso será liberado pelo e-mail cadastrado.',
+  'funcionario-adicionado': 'Funcionário adicionado. O acesso já está liberado pelo celular cadastrado.',
   'funcionario-removido': 'Funcionário removido da equipe ativa.',
+  'telefone-atualizado': 'Número de celular atualizado.',
   'erro-tarefa': 'Não foi possível adicionar a tarefa. Tente novamente.',
-  'erro-funcionario': 'Não foi possível adicionar. Confira se o e-mail já está cadastrado ou se a equipe chegou a 5 pessoas.',
+  'erro-funcionario': 'Não foi possível adicionar. Confira se o celular já está cadastrado ou se a equipe chegou a 5 pessoas.',
+  'erro-telefone': 'Não foi possível atualizar. Confira se o celular já está cadastrado para outra pessoa.',
   'dados-invalidos': 'Confira os campos preenchidos e tente novamente.',
 };
 
@@ -111,14 +115,13 @@ export function Dashboard({
               <div className="invisible absolute right-0 top-full z-30 mt-2 w-56 rounded-xl border border-brand/10 bg-white p-2 opacity-0 shadow-xl transition group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
                 <div className="px-2 py-2">
                   <p className="truncate text-sm font-semibold">{currentUser.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">{currentUser.email}</p>
+                  <p className="truncate text-xs text-muted-foreground">{currentUser.phone ? formatPhone(currentUser.phone) : 'Celular não configurado'}</p>
                 </div>
-                <a
-                  href="/signout-with-chatgpt?return_to=%2F"
-                  className="flex h-9 items-center gap-2 rounded-lg px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  <LogOut className="size-4" /> Sair
-                </a>
+                <form action={logoutAction}>
+                  <button type="submit" className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
+                    <LogOut className="size-4" /> Sair
+                  </button>
+                </form>
               </div>
             </div>
           </div>
@@ -198,7 +201,7 @@ export function Dashboard({
               <div className="max-w-sm">
                 <span className="mx-auto mb-4 grid size-12 place-items-center rounded-2xl bg-blush/20 text-brand"><UserPlus className="size-6" /></span>
                 <h3 className="font-heading text-xl font-semibold">Cadastre a equipe para começar</h3>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">Adicione os cinco funcionários pelo nome e e-mail. Depois, as tarefas poderão ser distribuídas individualmente.</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">Adicione os cinco funcionários pelo nome e celular. Depois, as tarefas poderão ser distribuídas individualmente.</p>
                 <Button className="mt-5" onClick={() => setTeamDialogOpen(true)}><UserPlus /> Adicionar funcionário</Button>
               </div>
             </div>
@@ -222,7 +225,7 @@ export function Dashboard({
             setSelectedEmployee={setSelectedEmployee}
             date={date}
           />
-          <TeamDialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen} employees={employees} date={date} />
+          <TeamDialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen} currentUser={currentUser} employees={employees} date={date} />
         </>
       ) : null}
     </main>
@@ -321,27 +324,77 @@ function TaskDialog({ open, onOpenChange, employees, selectedEmployee, setSelect
   );
 }
 
-function TeamDialog({ open, onOpenChange, employees, date }: { open: boolean; onOpenChange: (open: boolean) => void; employees: Member[]; date: string }) {
+function TeamDialog({ open, onOpenChange, currentUser, employees, date }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  currentUser: Member;
+  employees: Member[];
+  date: string;
+}) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Equipe</DialogTitle>
-          <DialogDescription>Cadastre até cinco funcionários. O acesso será vinculado ao e-mail informado.</DialogDescription>
+          <DialogDescription>Cadastre até cinco funcionários. Cada acesso será vinculado ao celular informado.</DialogDescription>
         </DialogHeader>
+
+        <section className="rounded-xl border border-brand/10 bg-blush/10 p-4">
+          <h3 className="text-sm font-semibold">Seu celular de acesso</h3>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Use este número para entrar como proprietária sem depender do e-mail.
+          </p>
+          <form action={updateMemberPhoneAction} className="mt-3 flex gap-2">
+            <input type="hidden" name="memberId" value={currentUser.id} />
+            <input type="hidden" name="taskDate" value={date} />
+            <Input
+              name="phone"
+              type="tel"
+              inputMode="numeric"
+              autoComplete="tel"
+              required
+              maxLength={19}
+              defaultValue={currentUser.phone ? formatPhone(currentUser.phone) : ''}
+              placeholder="(00) 00000-0000"
+              aria-label="Seu número de celular"
+              className="h-10"
+            />
+            <Button type="submit" variant="outline" className="h-10 shrink-0">Salvar</Button>
+          </form>
+        </section>
+
         {employees.length ? (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {employees.map((employee) => (
-              <div key={employee.id} className="flex items-center gap-3 rounded-xl border border-brand/10 p-3">
-                <span className="grid size-9 place-items-center rounded-full bg-blush/25 text-xs font-semibold text-brand">{initials(employee.name)}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold">{employee.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">{employee.email} · {employee.jobTitle}</p>
+              <div key={employee.id} className="rounded-xl border border-brand/10 p-3">
+                <div className="flex items-center gap-3">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-full bg-blush/25 text-xs font-semibold text-brand">{initials(employee.name)}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{employee.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{employee.jobTitle}</p>
+                  </div>
+                  <form action={deactivateEmployeeAction} onSubmit={(event) => { if (!window.confirm(`Remover ${employee.name} da equipe ativa?`)) event.preventDefault(); }}>
+                    <input type="hidden" name="memberId" value={employee.id} />
+                    <input type="hidden" name="taskDate" value={date} />
+                    <Button type="submit" variant="ghost" size="icon-sm" aria-label={`Remover ${employee.name}`} className="text-muted-foreground hover:text-destructive"><Trash2 /></Button>
+                  </form>
                 </div>
-                <form action={deactivateEmployeeAction} onSubmit={(event) => { if (!window.confirm(`Remover ${employee.name} da equipe ativa?`)) event.preventDefault(); }}>
+                <form action={updateMemberPhoneAction} className="mt-3 flex gap-2 pl-12">
                   <input type="hidden" name="memberId" value={employee.id} />
                   <input type="hidden" name="taskDate" value={date} />
-                  <Button type="submit" variant="ghost" size="icon-sm" aria-label={`Remover ${employee.name}`} className="text-muted-foreground hover:text-destructive"><Trash2 /></Button>
+                  <Input
+                    name="phone"
+                    type="tel"
+                    inputMode="numeric"
+                    autoComplete="tel"
+                    required
+                    maxLength={19}
+                    defaultValue={employee.phone ? formatPhone(employee.phone) : ''}
+                    placeholder="Celular de acesso"
+                    aria-label={`Celular de ${employee.name}`}
+                    className="h-9"
+                  />
+                  <Button type="submit" variant="ghost" size="sm" className="h-9 shrink-0 text-brand">Salvar</Button>
                 </form>
               </div>
             ))}
@@ -352,7 +405,7 @@ function TeamDialog({ open, onOpenChange, employees, date }: { open: boolean; on
           <form action={addEmployeeAction} className="space-y-3">
             <input type="hidden" name="taskDate" value={date} />
             <label className="grid gap-1.5 text-sm font-medium">Nome<Input name="name" required maxLength={80} placeholder="Nome completo" className="h-10" disabled={employees.length >= 5} /></label>
-            <label className="grid gap-1.5 text-sm font-medium">E-mail de acesso<Input name="email" type="email" required maxLength={160} placeholder="funcionario@exemplo.com" className="h-10" disabled={employees.length >= 5} /></label>
+            <label className="grid gap-1.5 text-sm font-medium">Celular de acesso<Input name="phone" type="tel" inputMode="numeric" autoComplete="tel" required maxLength={19} placeholder="(00) 00000-0000" className="h-10" disabled={employees.length >= 5} /></label>
             <label className="grid gap-1.5 text-sm font-medium">Função
               <select name="jobTitle" className="h-10 w-full rounded-lg border border-input bg-white px-3 text-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/20" disabled={employees.length >= 5}>
                 <option value="Produção">Produção</option>
@@ -373,4 +426,14 @@ function initials(name: string) {
 
 function firstName(name: string) {
   return name.trim().split(/\s+/)[0] || name;
+}
+
+function formatPhone(phone: string) {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 11) return digits.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3');
+  if (digits.length === 10) return digits.replace(/^(\d{2})(\d{4})(\d{4})$/, '($1) $2-$3');
+  if (digits.length === 13 && digits.startsWith('55')) {
+    return digits.replace(/^(55)(\d{2})(\d{5})(\d{4})$/, '+$1 ($2) $3-$4');
+  }
+  return phone;
 }

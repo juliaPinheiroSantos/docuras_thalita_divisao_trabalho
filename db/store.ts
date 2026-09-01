@@ -7,6 +7,7 @@ export type Member = {
   id: string;
   authUserId: string | null;
   email: string;
+  phone: string | null;
   name: string;
   role: MemberRole;
   jobTitle: string;
@@ -37,6 +38,7 @@ export async function ensureSchema() {
         id TEXT PRIMARY KEY NOT NULL,
         auth_user_id TEXT,
         email TEXT NOT NULL,
+        phone TEXT,
         name TEXT NOT NULL,
         role TEXT NOT NULL CHECK(role IN ('owner', 'employee')),
         job_title TEXT NOT NULL,
@@ -56,11 +58,30 @@ export async function ensureSchema() {
         FOREIGN KEY (assigned_user_id) REFERENCES users(id),
         FOREIGN KEY (created_by) REFERENCES users(id)
       )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY NOT NULL,
+        token_hash TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )`),
+    ]);
+
+    const columns = await db.prepare("PRAGMA table_info('users')").all<{ name: string }>();
+    if (!columns.results.some((column) => column.name === 'phone')) {
+      await db.prepare('ALTER TABLE users ADD COLUMN phone TEXT').run();
+    }
+
+    await db.batch([
       db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)'),
       db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_user_id ON users(auth_user_id)'),
+      db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)'),
       db.prepare('CREATE INDEX IF NOT EXISTS idx_users_role_active ON users(role, active)'),
       db.prepare('CREATE INDEX IF NOT EXISTS idx_tasks_date_assignee ON tasks(task_date, assigned_user_id)'),
       db.prepare('CREATE INDEX IF NOT EXISTS idx_tasks_assignee_status ON tasks(assigned_user_id, status)'),
+      db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash)'),
+      db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)'),
     ]);
   })().catch((error) => {
     schemaReady = null;
@@ -99,6 +120,7 @@ export async function getOrCreateMembership(user: ChatGPTUser): Promise<Member |
     id: crypto.randomUUID(),
     authUserId: user.userId,
     email,
+    phone: null,
     name: user.fullName?.trim() || email.split('@')[0] || 'Proprietária',
     role: 'owner',
     jobTitle: 'Proprietária',
@@ -107,11 +129,29 @@ export async function getOrCreateMembership(user: ChatGPTUser): Promise<Member |
   };
   await db
     .prepare(`INSERT INTO users
-      (id, auth_user_id, email, name, role, job_title, active, created_at)
-      VALUES (?, ?, ?, ?, 'owner', ?, 1, ?)`) 
+      (id, auth_user_id, email, phone, name, role, job_title, active, created_at)
+      VALUES (?, ?, ?, NULL, ?, 'owner', ?, 1, ?)`)
     .bind(owner.id, owner.authUserId, owner.email, owner.name, owner.jobTitle, owner.createdAt)
     .run();
   return owner;
+}
+
+export async function findActiveMemberByPhone(phone: string): Promise<Member | null> {
+  await ensureSchema();
+  const row = await getD1()
+    .prepare('SELECT * FROM users WHERE phone = ? AND active = 1 LIMIT 1')
+    .bind(phone)
+    .first<Record<string, unknown>>();
+  return row ? normalizeMember(row) : null;
+}
+
+export async function findActiveMemberById(memberId: string): Promise<Member | null> {
+  await ensureSchema();
+  const row = await getD1()
+    .prepare('SELECT * FROM users WHERE id = ? AND active = 1 LIMIT 1')
+    .bind(memberId)
+    .first<Record<string, unknown>>();
+  return row ? normalizeMember(row) : null;
 }
 
 export async function listEmployees(): Promise<Member[]> {
@@ -133,13 +173,7 @@ export async function listTasksForDate(date: string, member?: Member): Promise<W
   return result.results.map(normalizeTask);
 }
 
-export async function requireOwner(user: ChatGPTUser): Promise<Member> {
-  const member = await getOrCreateMembership(user);
-  if (!member || member.role !== 'owner') throw new Error('Acesso não autorizado.');
-  return member;
-}
-
-export async function createEmployee(input: { name: string; email: string; jobTitle: string }) {
+export async function createEmployee(input: { name: string; phone: string; jobTitle: string }) {
   await ensureSchema();
   const db = getD1();
   const count = await db
@@ -147,27 +181,43 @@ export async function createEmployee(input: { name: string; email: string; jobTi
     .first<{ total: number }>();
   if (Number(count?.total ?? 0) >= 5) throw new Error('A equipe já tem 5 funcionários ativos.');
 
-  const email = input.email.trim().toLowerCase();
   const existing = await db
-    .prepare('SELECT id FROM users WHERE lower(email) = ? LIMIT 1')
-    .bind(email)
+    .prepare('SELECT id FROM users WHERE phone = ? LIMIT 1')
+    .bind(input.phone)
     .first<{ id: string }>();
-  if (existing) throw new Error('Este e-mail já está cadastrado.');
+  if (existing) throw new Error('Este celular já está cadastrado.');
 
+  const id = crypto.randomUUID();
+  const internalEmail = `phone-${input.phone}-${id.slice(0, 8)}@internal.invalid`;
   await db
     .prepare(`INSERT INTO users
-      (id, auth_user_id, email, name, role, job_title, active, created_at)
-      VALUES (?, NULL, ?, ?, 'employee', ?, 1, ?)`) 
-    .bind(crypto.randomUUID(), email, input.name.trim(), input.jobTitle, new Date().toISOString())
+      (id, auth_user_id, email, phone, name, role, job_title, active, created_at)
+      VALUES (?, NULL, ?, ?, ?, 'employee', ?, 1, ?)`)
+    .bind(id, internalEmail, input.phone, input.name.trim(), input.jobTitle, new Date().toISOString())
     .run();
+}
+
+export async function updateMemberPhone(memberId: string, phone: string) {
+  await ensureSchema();
+  const db = getD1();
+  const existing = await db
+    .prepare('SELECT id FROM users WHERE phone = ? AND id != ? LIMIT 1')
+    .bind(phone, memberId)
+    .first<{ id: string }>();
+  if (existing) throw new Error('Este celular já está cadastrado.');
+  await db.batch([
+    db.prepare('UPDATE users SET phone = ? WHERE id = ? AND active = 1').bind(phone, memberId),
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(memberId),
+  ]);
 }
 
 export async function deactivateEmployee(memberId: string) {
   await ensureSchema();
-  await getD1()
-    .prepare("UPDATE users SET active = 0 WHERE id = ? AND role = 'employee'")
-    .bind(memberId)
-    .run();
+  const db = getD1();
+  await db.batch([
+    db.prepare("UPDATE users SET active = 0 WHERE id = ? AND role = 'employee'").bind(memberId),
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(memberId),
+  ]);
 }
 
 export async function createTask(input: {
@@ -224,6 +274,7 @@ function normalizeMember(row: Record<string, unknown>): Member {
     id: String(row.id),
     authUserId: row.auth_user_id ? String(row.auth_user_id) : null,
     email: String(row.email),
+    phone: row.phone ? String(row.phone) : null,
     name: String(row.name),
     role: String(row.role) as MemberRole,
     jobTitle: String(row.job_title),

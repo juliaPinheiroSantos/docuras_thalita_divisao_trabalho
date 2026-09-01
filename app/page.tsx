@@ -1,9 +1,8 @@
-import { LockKeyhole, LogOut } from 'lucide-react';
-
-import { requireChatGPTUser } from '@/app/chatgpt-auth';
-import { Button } from '@/components/ui/button';
+import { getChatGPTUser } from '@/app/chatgpt-auth';
+import { getPhoneSessionMember } from '@/app/phone-auth';
 import { Dashboard } from '@/components/dashboard';
-import { getOrCreateMembership, listEmployees, listTasksForDate } from '@/db/store';
+import { PhoneLogin } from '@/components/phone-login';
+import { getOrCreateMembership, listEmployees, listTasksForDate, type Member } from '@/db/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,10 +14,9 @@ export default async function Home({ searchParams }: HomeProps) {
   const params = (await searchParams) ?? {};
   const date = validDate(singleValue(params.date)) ?? todayInSaoPaulo();
   const notice = singleValue(params.aviso);
-  const user = await requireChatGPTUser(`/?date=${date}`);
-  const membership = await getOrCreateMembership(user);
+  const membership = await currentMember();
 
-  if (!membership) return <NoAccess email={user.email} />;
+  if (!membership) return <PhoneLogin notice={notice} />;
 
   const employees = membership.role === 'owner' ? await listEmployees() : [];
   const tasks = await listTasksForDate(date, membership.role === 'employee' ? membership : undefined);
@@ -43,20 +41,14 @@ export default async function Home({ searchParams }: HomeProps) {
   );
 }
 
-function NoAccess({ email }: { email: string }) {
-  return (
-    <main className="grid min-h-screen place-items-center bg-background p-5">
-      <section className="w-full max-w-md rounded-3xl border border-brand/10 bg-white p-7 text-center shadow-[0_24px_70px_rgb(90_45_45/9%)] sm:p-9">
-        <img src="/logo-docuras-da-thalita.svg" alt="Doçuras da Thalita" className="mx-auto h-24 w-28 object-contain" />
-        <span className="mx-auto mt-3 grid size-12 place-items-center rounded-2xl bg-blush/20 text-brand"><LockKeyhole className="size-6" /></span>
-        <h1 className="mt-5 font-heading text-2xl font-semibold">Acesso ainda não liberado</h1>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          O e-mail <strong className="font-medium text-foreground">{email}</strong> ainda não faz parte da equipe. Peça ao proprietário para cadastrá-lo exatamente como aparece aqui.
-        </p>
-        <Button variant="outline" className="mt-6" render={<a href="/signout-with-chatgpt?return_to=%2F" />}><LogOut /> Entrar com outro e-mail</Button>
-      </section>
-    </main>
-  );
+async function currentMember(): Promise<Member | null> {
+  const sessionMember = await getPhoneSessionMember();
+  if (sessionMember) return sessionMember;
+
+  const chatGPTUser = await getChatGPTUser();
+  if (!chatGPTUser) return null;
+  const membership = await getOrCreateMembership(chatGPTUser);
+  return membership?.role === 'owner' ? membership : null;
 }
 
 function singleValue(value: string | string[] | undefined) {
