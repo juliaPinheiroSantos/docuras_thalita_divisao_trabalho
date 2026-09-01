@@ -50,8 +50,12 @@ export async function setupOwnerPasswordAction(formData: FormData) {
   if (!isOwnerPhone(phone) || !validPassword(password)) {
     redirect('/configurar-acesso?aviso=dados-invalidos');
   }
-  const record = await createPasswordRecord(password);
-  await setMemberCredential({ memberId: owner.id, phone, passwordHash: record.hash, passwordSalt: record.salt });
+  try {
+    const record = await createPasswordRecord(password);
+    await setMemberCredential({ memberId: owner.id, phone, passwordHash: record.hash, passwordSalt: record.salt });
+  } catch {
+    redirect('/configurar-acesso?aviso=erro-senha');
+  }
   revalidatePath('/configurar-acesso');
   redirect('/configurar-acesso?aviso=senha-atualizada');
 }

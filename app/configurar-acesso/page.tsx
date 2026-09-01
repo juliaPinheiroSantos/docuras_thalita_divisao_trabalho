@@ -43,6 +43,10 @@ export default async function SetupOwnerAccess({ searchParams }: SetupProps) {
           <output className="mt-5 block rounded-xl border border-brand/15 bg-blush/15 px-4 py-3 text-sm text-brand">
             Use uma senha com pelo menos 6 caracteres.
           </output>
+        ) : notice === 'erro-senha' ? (
+          <output className="mt-5 block rounded-xl border border-brand/15 bg-blush/15 px-4 py-3 text-sm text-brand">
+            Não foi possível salvar a senha. Tente novamente em alguns instantes.
+          </output>
         ) : null}
 
         <div className="mt-6 space-y-3">
