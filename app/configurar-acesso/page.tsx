@@ -29,8 +29,8 @@ export default async function SetupOwnerAccess({ searchParams }: SetupProps) {
         <div className="text-center">
           <img src="/logo-docuras-da-thalita.svg" alt="Doçuras da Thalita" className="mx-auto h-24 w-28 object-contain" />
           <span className="mx-auto mt-3 grid size-12 place-items-center rounded-2xl bg-blush/20 text-brand"><ShieldCheck className="size-6" /></span>
-          <h1 className="mt-5 font-heading text-2xl font-semibold">Configurar acessos do proprietário</h1>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          <h1 className="mt-5 font-heading text-3xl font-semibold">Configurar acessos do proprietário</h1>
+          <p className="mt-3 text-base leading-7 text-muted-foreground">
             Defina uma senha para cada número autorizado. As senhas podem ser diferentes.
           </p>
         </div>

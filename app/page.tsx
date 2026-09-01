@@ -2,6 +2,7 @@ import { getPhoneSessionMember } from '@/app/phone-auth';
 import { Dashboard } from '@/components/dashboard';
 import { PhoneLogin } from '@/components/phone-login';
 import { listAccessCredentials, listEmployees, listTasksForDate } from '@/db/store';
+import { OWNER_PHONES } from '@/lib/access';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +16,14 @@ export default async function Home({ searchParams }: HomeProps) {
   const notice = singleValue(params.aviso);
   const membership = await getPhoneSessionMember();
 
-  if (!membership) return <PhoneLogin notice={notice} />;
+  if (!membership) {
+    const credentials = await listAccessCredentials();
+    const ownerSetupRequired = OWNER_PHONES.some((phone) => {
+      const credential = credentials.find((item) => item.phone === phone);
+      return !credential?.passwordConfigured;
+    });
+    return <PhoneLogin notice={notice} showOwnerSetup={ownerSetupRequired} />;
+  }
 
   const employees = membership.role === 'owner' ? await listEmployees() : [];
   const accessCredentials = membership.role === 'owner' ? await listAccessCredentials() : [];
