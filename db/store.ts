@@ -559,10 +559,11 @@ export async function toggleTask(taskId: string, actor: Member) {
     .first<{ assigned_user_id: string; status: 'pending' | 'done' }>();
   if (!task) throw new Error('Tarefa não encontrada.');
   if (actor.role !== 'owner' && task.assigned_user_id !== actor.id) throw new Error('Acesso não autorizado.');
-  const status = task.status === 'done' ? 'pending' : 'done';
+  const status: WorkTask['status'] = task.status === 'done' ? 'pending' : 'done';
   await db.prepare('UPDATE tasks SET status = ?, completed_at = ? WHERE id = ?')
     .bind(status, status === 'done' ? new Date().toISOString() : null, taskId)
     .run();
+  return status;
 }
 
 export async function deleteTask(taskId: string) {

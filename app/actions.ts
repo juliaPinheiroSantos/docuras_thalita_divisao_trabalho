@@ -101,14 +101,13 @@ export async function toggleTaskAction(formData: FormData) {
   const taskId = textValue(formData, 'taskId');
   const taskDate = validDate(textValue(formData, 'taskDate'));
   const previewEmployeeId = textValue(formData, 'previewEmployeeId');
-  if (!taskId || !taskDate) redirect('/');
-  await toggleTask(taskId, actor);
+  if (!taskId || !taskDate) throw new Error('Tarefa inválida.');
+  const status = await toggleTask(taskId, actor);
   revalidatePath('/');
   if (actor.role === 'owner' && validMemberId(previewEmployeeId)) {
     revalidatePath(`/funcionario/${previewEmployeeId}`);
-    redirect(`/funcionario/${encodeURIComponent(previewEmployeeId)}?date=${taskDate}`);
   }
-  redirect(`/?date=${taskDate}`);
+  return { status };
 }
 
 export async function deleteTaskAction(formData: FormData) {

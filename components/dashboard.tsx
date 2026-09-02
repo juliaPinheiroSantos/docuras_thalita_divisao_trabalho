@@ -102,10 +102,70 @@ export function Dashboard({
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [teamDialogOpen, setTeamDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(employeeOptions[0]?.id ?? '');
+  const [visibleCards, setVisibleCards] = useState(cards);
+  const [visibleTaskStats, setVisibleTaskStats] = useState(taskStats);
+  const [pendingTaskIds, setPendingTaskIds] = useState<Set<string>>(() => new Set());
+  const [taskUpdateError, setTaskUpdateError] = useState(false);
 
   function openTaskDialog(memberId?: string) {
     setSelectedEmployee(memberId ?? employeeOptions[0]?.id ?? '');
     setTaskDialogOpen(true);
+  }
+
+  async function handleTaskToggle(taskId: string, currentStatus: WorkTask['status']) {
+    if (pendingTaskIds.has(taskId)) return;
+
+    const optimisticStatus = currentStatus === 'done' ? 'pending' : 'done';
+    const optimisticDelta = optimisticStatus === 'done' ? 1 : -1;
+    setTaskUpdateError(false);
+    setPendingTaskIds((current) => new Set(current).add(taskId));
+    setTaskStatus(taskId, optimisticStatus);
+    setVisibleTaskStats((current) => ({
+      ...current,
+      completed: Math.max(0, Math.min(current.total, current.completed + optimisticDelta)),
+    }));
+
+    const formData = new FormData();
+    formData.set('taskId', taskId);
+    formData.set('taskDate', date);
+    if (previewEmployeeId) formData.set('previewEmployeeId', previewEmployeeId);
+
+    try {
+      const result = await toggleTaskAction(formData);
+      if (result.status !== optimisticStatus) {
+        setTaskStatus(taskId, result.status);
+        setVisibleTaskStats((current) => ({
+          ...current,
+          completed: Math.max(0, Math.min(current.total, current.completed - optimisticDelta)),
+        }));
+      }
+    } catch {
+      setTaskStatus(taskId, currentStatus);
+      setVisibleTaskStats((current) => ({
+        ...current,
+        completed: Math.max(0, Math.min(current.total, current.completed - optimisticDelta)),
+      }));
+      setTaskUpdateError(true);
+    } finally {
+      setPendingTaskIds((current) => {
+        const next = new Set(current);
+        next.delete(taskId);
+        return next;
+      });
+    }
+  }
+
+  function setTaskStatus(taskId: string, status: WorkTask['status']) {
+    setVisibleCards((current) => current.map((member) => ({
+      ...member,
+      tasks: member.tasks.map((task) => task.id === taskId
+        ? {
+            ...task,
+            status,
+            completedAt: status === 'done' ? new Date().toISOString() : null,
+          }
+        : task),
+    })));
   }
 
   return (
@@ -176,6 +236,11 @@ export function Dashboard({
             {notices[notice]}
           </output>
         ) : null}
+        {taskUpdateError ? (
+          <output className="mb-5 block rounded-xl border border-brand/15 bg-blush/15 px-4 py-3 text-sm text-brand">
+            Não foi possível atualizar a tarefa. O estado anterior foi restaurado; tente novamente.
+          </output>
+        ) : null}
 
         <section className="mb-7 flex flex-col justify-between gap-5 md:flex-row md:items-end">
           <div>
@@ -219,7 +284,7 @@ export function Dashboard({
           <div className="flex items-center gap-3 rounded-2xl border border-brand/10 bg-white p-4 shadow-[0_8px_24px_rgb(90_45_45/4%)]">
             <span className="grid size-10 place-items-center rounded-xl bg-[#e8f3ec] text-[#467158]"><CheckCircle2 className="size-5" /></span>
             <div>
-              <p className="text-2xl font-semibold tracking-tight">{taskStats.completed} <span className="text-sm font-normal text-muted-foreground">de {taskStats.total}</span></p>
+              <p className="text-2xl font-semibold tracking-tight">{visibleTaskStats.completed} <span className="text-sm font-normal text-muted-foreground">de {visibleTaskStats.total}</span></p>
               <p className="text-xs text-muted-foreground">tarefas concluídas</p>
             </div>
           </div>
@@ -254,7 +319,7 @@ export function Dashboard({
             </div>
           </div>
 
-          {cards.length === 0 ? (
+          {visibleCards.length === 0 ? (
             <div className="grid min-h-72 place-items-center rounded-2xl border border-dashed border-brand/20 bg-white/55 p-6 text-center">
               <div className="max-w-sm">
                 <span className="mx-auto mb-4 grid size-12 place-items-center rounded-2xl bg-blush/20 text-brand"><UserPlus className="size-6" /></span>
@@ -265,8 +330,16 @@ export function Dashboard({
             </div>
           ) : (
             <div className={`grid gap-4 ${isOwner ? 'lg:grid-cols-2 xl:grid-cols-3' : 'mx-auto max-w-2xl'}`}>
-              {cards.map((member) => (
-                <MemberCard key={member.id} member={member} date={date} isOwner={isOwner} previewEmployeeId={previewEmployeeId} onAddTask={() => openTaskDialog(member.id)} />
+              {visibleCards.map((member) => (
+                <MemberCard
+                  key={member.id}
+                  member={member}
+                  date={date}
+                  isOwner={isOwner}
+                  pendingTaskIds={pendingTaskIds}
+                  onToggleTask={handleTaskToggle}
+                  onAddTask={() => openTaskDialog(member.id)}
+                />
               ))}
             </div>
           )}
@@ -297,7 +370,14 @@ export function Dashboard({
   );
 }
 
-function MemberCard({ member, date, isOwner, previewEmployeeId, onAddTask }: { member: MemberTasks; date: string; isOwner: boolean; previewEmployeeId?: string; onAddTask: () => void }) {
+function MemberCard({ member, date, isOwner, pendingTaskIds, onToggleTask, onAddTask }: {
+  member: MemberTasks;
+  date: string;
+  isOwner: boolean;
+  pendingTaskIds: Set<string>;
+  onToggleTask: (taskId: string, status: WorkTask['status']) => void;
+  onAddTask: () => void;
+}) {
   const completed = member.tasks.filter((task) => task.status === 'done').length;
   return (
     <article className="overflow-hidden rounded-2xl border border-brand/10 bg-white shadow-[0_12px_32px_rgb(90_45_45/5%)]">
@@ -315,18 +395,17 @@ function MemberCard({ member, date, isOwner, previewEmployeeId, onAddTask }: { m
         <ul className="divide-y divide-brand/7 px-4 sm:px-5">
           {member.tasks.map((task) => (
             <li key={task.id} className="flex items-start gap-3 py-4">
-              <form action={toggleTaskAction}>
-                <input type="hidden" name="taskId" value={task.id} />
-                <input type="hidden" name="taskDate" value={date} />
-                {previewEmployeeId ? <input type="hidden" name="previewEmployeeId" value={previewEmployeeId} /> : null}
-                <button
-                  type="submit"
-                  aria-label={task.status === 'done' ? `Reabrir ${task.title}` : `Concluir ${task.title}`}
-                  className={`mt-0.5 grid size-6 shrink-0 place-items-center rounded-md border transition ${task.status === 'done' ? 'border-brand bg-brand text-white' : 'border-input bg-white text-transparent hover:border-brand'}`}
-                >
-                  <Check className="size-4" />
-                </button>
-              </form>
+              <button
+                type="button"
+                aria-label={task.status === 'done' ? `Reabrir ${task.title}` : `Concluir ${task.title}`}
+                aria-pressed={task.status === 'done'}
+                aria-busy={pendingTaskIds.has(task.id)}
+                disabled={pendingTaskIds.has(task.id)}
+                onClick={() => onToggleTask(task.id, task.status)}
+                className={`mt-0.5 grid size-6 shrink-0 place-items-center rounded-md border transition active:scale-95 disabled:cursor-wait disabled:opacity-75 ${task.status === 'done' ? 'border-brand bg-brand text-white' : 'border-input bg-white text-transparent hover:border-brand'}`}
+              >
+                <Check className="size-4" />
+              </button>
               <div className="min-w-0 flex-1">
                 <p className={`text-sm leading-5 ${task.status === 'done' ? 'text-muted-foreground line-through decoration-blush' : ''}`}>{task.title}</p>
                 {task.details ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{task.details}</p> : null}
