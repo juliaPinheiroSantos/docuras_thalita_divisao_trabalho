@@ -1,10 +1,12 @@
 import { CheckCircle2, KeyRound, ShieldCheck } from 'lucide-react';
+import { redirect } from 'next/navigation';
 
-import { requireChatGPTUser } from '@/app/chatgpt-auth';
 import { setupOwnerPasswordAction } from '@/app/actions';
+import { getChatGPTUser } from '@/app/chatgpt-auth';
+import { getPhoneSessionMember } from '@/app/phone-auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { getOrCreateMembership, listAccessCredentials } from '@/db/store';
+import { getOrCreateBootstrapOwner, getOrCreateMembership, listAccessCredentials, type Member } from '@/db/store';
 import { OWNER_PHONES } from '@/lib/access';
 
 export const dynamic = 'force-dynamic';
@@ -14,9 +16,28 @@ type SetupProps = {
 };
 
 export default async function SetupOwnerAccess({ searchParams }: SetupProps) {
-  const user = await requireChatGPTUser('/configurar-acesso');
-  const owner = await getOrCreateMembership(user);
-  if (owner?.role !== 'owner') return <SetupDenied />;
+  const sessionMember = await getPhoneSessionMember();
+  let owner: Member | null = sessionMember?.role === 'owner' ? sessionMember : null;
+  let authenticatedOwner = Boolean(owner);
+
+  if (!owner) {
+    const chatGPTUser = await getChatGPTUser();
+    const chatGPTMember = chatGPTUser ? await getOrCreateMembership(chatGPTUser) : null;
+    if (chatGPTMember?.role === 'owner') {
+      owner = chatGPTMember;
+      authenticatedOwner = true;
+    }
+  }
+
+  if (!owner) {
+    const currentCredentials = await listAccessCredentials();
+    const setupComplete = OWNER_PHONES.every((phone) =>
+      currentCredentials.some((credential) => credential.phone === phone && credential.passwordConfigured),
+    );
+    if (setupComplete) redirect('/');
+    owner = await getOrCreateBootstrapOwner();
+  }
+  if (!owner) return <SetupDenied />;
 
   const params = (await searchParams) ?? {};
   const notice = singleValue(params.aviso);
@@ -52,31 +73,37 @@ export default async function SetupOwnerAccess({ searchParams }: SetupProps) {
         <div className="mt-6 space-y-3">
           {OWNER_PHONES.map((phone) => {
             const credential = credentials.find((item) => item.phone === phone);
+            const passwordConfigured = Boolean(credential?.passwordConfigured);
+            const canEdit = authenticatedOwner || !passwordConfigured;
             return (
-              <form key={phone} action={setupOwnerPasswordAction} className="rounded-xl border border-brand/10 p-4">
-                <input type="hidden" name="phone" value={phone} />
+              <div key={phone} className="rounded-xl border border-brand/10 p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <span className="font-medium">{formatPhone(phone)}</span>
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${credential?.passwordConfigured ? 'bg-[#e8f3ec] text-[#467158]' : 'bg-blush/20 text-brand'}`}>
-                    {credential?.passwordConfigured ? 'Senha definida' : 'Falta definir'}
+                  <span className={`rounded-full px-2.5 py-1 text-sm font-medium ${passwordConfigured ? 'bg-[#e8f3ec] text-[#467158]' : 'bg-blush/20 text-brand'}`}>
+                    {passwordConfigured ? 'Senha definida' : 'Falta definir'}
                   </span>
                 </div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <span className="relative flex-1">
-                    <KeyRound className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input name="password" type="password" autoComplete="new-password" required minLength={6} maxLength={128} placeholder="Nova senha" aria-label={`Senha de ${formatPhone(phone)}`} className="h-11 pl-10" />
-                  </span>
-                  <Button type="submit" className="h-11 sm:w-28">{credential?.passwordConfigured ? 'Alterar' : 'Definir'}</Button>
-                </div>
-              </form>
+                {canEdit ? (
+                  <form action={setupOwnerPasswordAction} className="flex flex-col gap-2 sm:flex-row">
+                    <input type="hidden" name="phone" value={phone} />
+                    <span className="relative flex-1">
+                      <KeyRound className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input name="password" type="password" autoComplete="new-password" required minLength={6} maxLength={128} placeholder="Nova senha" aria-label={`Senha de ${formatPhone(phone)}`} className="h-12 pl-10 text-base" />
+                    </span>
+                    <Button type="submit" className="h-12 sm:w-28">{passwordConfigured ? 'Alterar' : 'Definir'}</Button>
+                  </form>
+                ) : (
+                  <p className="text-base leading-6 text-muted-foreground">Entre com este número para alterar a senha.</p>
+                )}
+              </div>
             );
           })}
         </div>
 
         <div className="mt-6 rounded-xl bg-muted/60 p-4 text-sm leading-6 text-muted-foreground">
-          {configuredCount === 3
+          {configuredCount === OWNER_PHONES.length
             ? 'Os três acessos estão prontos. Agora você pode entrar no painel usando qualquer número e sua respectiva senha.'
-            : `${configuredCount} de 3 acessos configurados. Defina pelo menos uma senha para conseguir entrar no painel.`}
+            : `${configuredCount} de ${OWNER_PHONES.length} acessos configurados. Defina pelo menos uma senha para conseguir entrar no painel.`}
         </div>
         <Button variant="outline" className="mt-4 w-full" render={<a href="/" />}>Ir para o login do painel</Button>
       </section>

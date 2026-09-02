@@ -221,6 +221,41 @@ export async function getOrCreateMembership(user: ChatGPTUser): Promise<Member |
   return owner;
 }
 
+export async function getOrCreateBootstrapOwner(): Promise<Member | null> {
+  await ensureSchema();
+  const db = getD1();
+  const existing = await db
+    .prepare("SELECT * FROM users WHERE role = 'owner' AND active = 1 LIMIT 1")
+    .first<Record<string, unknown>>();
+  if (existing) {
+    const owner = normalizeMember(existing);
+    await ensureOwnerCredentials(owner.id);
+    return owner;
+  }
+
+  const count = await db.prepare('SELECT COUNT(*) AS total FROM users').first<{ total: number }>();
+  if (Number(count?.total ?? 0) > 0) return null;
+
+  const owner: Member = {
+    id: crypto.randomUUID(),
+    authUserId: null,
+    email: 'proprietaria@internal.invalid',
+    phone: null,
+    name: 'Proprietária',
+    role: 'owner',
+    jobTitle: 'Proprietária',
+    active: 1,
+    createdAt: new Date().toISOString(),
+  };
+  await db.prepare(`INSERT INTO users
+    (id, auth_user_id, email, phone, name, role, job_title, active, created_at)
+    VALUES (?, NULL, ?, NULL, ?, 'owner', ?, 1, ?)`)
+    .bind(owner.id, owner.email, owner.name, owner.jobTitle, owner.createdAt)
+    .run();
+  await ensureOwnerCredentials(owner.id);
+  return owner;
+}
+
 export async function ensureOwnerCredentials(ownerId: string) {
   await ensureSchema();
   await seedOwnerCredentials(getD1(), ownerId);

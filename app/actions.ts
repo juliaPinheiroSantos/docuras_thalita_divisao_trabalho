@@ -11,7 +11,9 @@ import {
   deactivateEmployee,
   deleteTask,
   findCredentialLoginByPhone,
+  getOrCreateBootstrapOwner,
   getOrCreateMembership,
+  listAccessCredentials,
   setMemberCredential,
   toggleTask,
   type Member,
@@ -40,16 +42,32 @@ export async function logoutAction() {
 }
 
 export async function setupOwnerPasswordAction(formData: FormData) {
-  const chatGPTUser = await getChatGPTUser();
-  if (!chatGPTUser) throw new Error('Acesso não autorizado.');
-  const owner = await getOrCreateMembership(chatGPTUser);
-  if (owner?.role !== 'owner') throw new Error('Acesso exclusivo do proprietário.');
-
   const phone = normalizePhone(textValue(formData, 'phone'));
   const password = textValue(formData, 'password');
   if (!isOwnerPhone(phone) || !validPassword(password)) {
     redirect('/configurar-acesso?aviso=dados-invalidos');
   }
+
+  const sessionMember = await getPhoneSessionMember();
+  let owner = sessionMember?.role === 'owner' ? sessionMember : null;
+  let authenticatedOwner = Boolean(owner);
+  if (!owner) {
+    const chatGPTUser = await getChatGPTUser();
+    const chatGPTMember = chatGPTUser ? await getOrCreateMembership(chatGPTUser) : null;
+    if (chatGPTMember?.role === 'owner') {
+      owner = chatGPTMember;
+      authenticatedOwner = true;
+    }
+  }
+  owner ??= await getOrCreateBootstrapOwner();
+  if (!owner) throw new Error('Acesso exclusivo do proprietário.');
+
+  const credentials = await listAccessCredentials([owner.id]);
+  const credential = credentials.find((item) => item.phone === phone);
+  if (!authenticatedOwner && credential?.passwordConfigured) {
+    redirect('/?aviso=login-necessario');
+  }
+
   try {
     const record = await createPasswordRecord(password);
     await setMemberCredential({ memberId: owner.id, phone, passwordHash: record.hash, passwordSalt: record.salt });
