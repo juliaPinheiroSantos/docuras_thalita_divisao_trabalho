@@ -27,6 +27,7 @@ const localBindingConfig = {
           binding: d1,
           database_name: CLOUDFLARE_D1_DATABASE_NAME,
           database_id: CLOUDFLARE_D1_DATABASE_ID,
+          migrations_dir: '../../drizzle',
         },
       ]
     : [],
