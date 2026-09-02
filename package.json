@@ -9,6 +9,8 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "wrangler dev --config dist/server/wrangler.json",
+    "deploy": "node scripts/validate-cloudflare-config.mjs && pnpm run build && wrangler d1 migrations apply DB --remote --config dist/server/wrangler.json && wrangler deploy --config dist/server/wrangler.json",
+    "preview": "node scripts/validate-cloudflare-config.mjs && pnpm run build && wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate"
@@ -54,5 +56,6 @@
     "wrangler": "4.92.0",
     "drizzle-kit": "0.31.10"
   },
+  "packageManager": "pnpm@10.11.1",
   "type": "module"
 }
