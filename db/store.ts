@@ -23,6 +23,20 @@ export type AccessCredential = {
   passwordConfigured: boolean;
 };
 
+export type EmployeeOption = Pick<Member, 'id' | 'name' | 'jobTitle'>;
+
+export type EmployeePage = {
+  items: Member[];
+  total: number;
+  page: number;
+  pageCount: number;
+};
+
+export type TaskStats = {
+  total: number;
+  completed: number;
+};
+
 export type CredentialLogin = {
   credentialId: string;
   phone: string;
@@ -117,6 +131,7 @@ async function initializeSchema() {
     db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_user_id ON users(auth_user_id)'),
     db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)'),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_users_role_active ON users(role, active)'),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_users_role_active_job_title ON users(role, active, job_title)'),
     db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_login_credentials_phone ON login_credentials(phone)'),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_login_credentials_user_id ON login_credentials(user_id)'),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_tasks_date_assignee ON tasks(task_date, assigned_user_id)'),
@@ -285,13 +300,16 @@ export async function findActiveMemberById(memberId: string): Promise<Member | n
   return row ? normalizeMember(row) : null;
 }
 
-export async function listAccessCredentials(): Promise<AccessCredential[]> {
+export async function listAccessCredentials(userIds?: string[]): Promise<AccessCredential[]> {
   await ensureSchema();
-  const result = await getD1().prepare(`SELECT c.id, c.user_id, c.phone, c.password_hash
+  if (userIds && userIds.length === 0) return [];
+  const filter = userIds ? ` AND c.user_id IN (${userIds.map(() => '?').join(', ')})` : '';
+  const query = getD1().prepare(`SELECT c.id, c.user_id, c.phone, c.password_hash
     FROM login_credentials c
     JOIN users u ON u.id = c.user_id
-    WHERE u.active = 1
-    ORDER BY c.phone`).all<Record<string, unknown>>();
+    WHERE u.active = 1${filter}
+    ORDER BY c.phone`);
+  const result = await (userIds ? query.bind(...userIds) : query).all<Record<string, unknown>>();
   return result.results.map((row) => ({
     id: String(row.id),
     userId: String(row.user_id),
@@ -352,23 +370,85 @@ export async function setMemberCredential(input: {
   }
 }
 
-export async function listEmployees(): Promise<Member[]> {
+export async function listEmployeesPage(input: {
+  search?: string;
+  jobTitle?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<EmployeePage> {
   await ensureSchema();
-  const result = await getD1()
-    .prepare("SELECT * FROM users WHERE role = 'employee' AND active = 1 ORDER BY name COLLATE NOCASE")
+  const db = getD1();
+  const conditions = ["role = 'employee'", 'active = 1'];
+  const bindings: Array<string | number> = [];
+  const search = input.search?.trim().toLowerCase();
+  if (search) {
+    const term = `%${escapeLike(search)}%`;
+    conditions.push("(lower(name) LIKE ? ESCAPE '\\' OR phone LIKE ? ESCAPE '\\')");
+    bindings.push(term, term);
+  }
+  if (input.jobTitle) {
+    conditions.push('job_title = ?');
+    bindings.push(input.jobTitle);
+  }
+  const where = conditions.join(' AND ');
+  const count = await db.prepare(`SELECT COUNT(*) AS total FROM users WHERE ${where}`)
+    .bind(...bindings)
+    .first<{ total: number }>();
+  const total = Number(count?.total ?? 0);
+  const pageSize = Math.min(Math.max(input.pageSize ?? 12, 6), 48);
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(Math.max(input.page ?? 1, 1), pageCount);
+  const result = await db.prepare(`SELECT * FROM users WHERE ${where}
+    ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?`)
+    .bind(...bindings, pageSize, (page - 1) * pageSize)
     .all<Record<string, unknown>>();
-  return result.results.map(normalizeMember);
+  return { items: result.results.map(normalizeMember), total, page, pageCount };
 }
 
-export async function listTasksForDate(date: string, member?: Member): Promise<WorkTask[]> {
+export async function countActiveEmployees() {
   await ensureSchema();
+  const row = await getD1()
+    .prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'employee' AND active = 1")
+    .first<{ total: number }>();
+  return Number(row?.total ?? 0);
+}
+
+export async function listEmployeeOptions(): Promise<EmployeeOption[]> {
+  await ensureSchema();
+  const result = await getD1()
+    .prepare("SELECT id, name, job_title FROM users WHERE role = 'employee' AND active = 1 ORDER BY name COLLATE NOCASE")
+    .all<Record<string, unknown>>();
+  return result.results.map((row) => ({
+    id: String(row.id),
+    name: String(row.name),
+    jobTitle: String(row.job_title),
+  }));
+}
+
+export async function listTasksForDate(date: string, member?: Member, assignedUserIds?: string[]): Promise<WorkTask[]> {
+  await ensureSchema();
+  if (!member && assignedUserIds && assignedUserIds.length === 0) return [];
+  const ownerFilter = assignedUserIds
+    ? ` AND assigned_user_id IN (${assignedUserIds.map(() => '?').join(', ')})`
+    : '';
   const query = member?.role === 'employee'
     ? getD1().prepare(`SELECT * FROM tasks WHERE task_date = ? AND assigned_user_id = ?
         ORDER BY status ASC, created_at ASC`).bind(date, member.id)
-    : getD1().prepare(`SELECT * FROM tasks WHERE task_date = ?
-        ORDER BY status ASC, created_at ASC`).bind(date);
+    : getD1().prepare(`SELECT * FROM tasks WHERE task_date = ?${ownerFilter}
+        ORDER BY status ASC, created_at ASC`).bind(date, ...(assignedUserIds ?? []));
   const result = await query.all<Record<string, unknown>>();
   return result.results.map(normalizeTask);
+}
+
+export async function getTaskStatsForDate(date: string): Promise<TaskStats> {
+  await ensureSchema();
+  const row = await getD1().prepare(`SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS completed
+    FROM tasks WHERE task_date = ?`)
+    .bind(date)
+    .first<{ total: number; completed: number | null }>();
+  return { total: Number(row?.total ?? 0), completed: Number(row?.completed ?? 0) };
 }
 
 export async function createEmployee(input: {
@@ -381,10 +461,6 @@ export async function createEmployee(input: {
   await ensureSchema();
   if (isOwnerPhone(input.phone)) throw new Error('Número reservado ao proprietário.');
   const db = getD1();
-  const count = await db
-    .prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'employee' AND active = 1")
-    .first<{ total: number }>();
-  if (Number(count?.total ?? 0) >= 5) throw new Error('A equipe já tem 5 funcionários ativos.');
   const existing = await db.prepare('SELECT id FROM login_credentials WHERE phone = ? LIMIT 1')
     .bind(input.phone)
     .first<{ id: string }>();
@@ -489,4 +565,8 @@ function normalizeTask(row: Record<string, unknown>): WorkTask {
 
 function nullableString(value: unknown) {
   return typeof value === 'string' && value ? value : null;
+}
+
+function escapeLike(value: string) {
+  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
 }

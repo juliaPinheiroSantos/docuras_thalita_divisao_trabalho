@@ -20,7 +20,7 @@ export default async function SetupOwnerAccess({ searchParams }: SetupProps) {
 
   const params = (await searchParams) ?? {};
   const notice = singleValue(params.aviso);
-  const credentials = (await listAccessCredentials()).filter((credential) => credential.userId === owner.id);
+  const credentials = await listAccessCredentials([owner.id]);
   const configuredCount = credentials.filter((credential) => credential.passwordConfigured).length;
 
   return (

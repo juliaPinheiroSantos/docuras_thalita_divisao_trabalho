@@ -18,6 +18,7 @@ export const users = sqliteTable(
     uniqueIndex('idx_users_auth_user_id').on(table.authUserId),
     uniqueIndex('idx_users_phone').on(table.phone),
     index('idx_users_role_active').on(table.role, table.active),
+    index('idx_users_role_active_job_title').on(table.role, table.active, table.jobTitle),
   ],
 );
 

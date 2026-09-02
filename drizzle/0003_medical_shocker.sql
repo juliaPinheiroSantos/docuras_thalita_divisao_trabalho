@@ -1,0 +1,1 @@
+CREATE INDEX `idx_users_role_active_job_title` ON `users` (`role`,`active`,`job_title`);

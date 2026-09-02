@@ -24,7 +24,7 @@ import {
   toggleTaskAction,
   updateMemberAccessAction,
 } from '@/app/actions';
-import type { AccessCredential, Member, WorkTask } from '@/db/store';
+import type { AccessCredential, EmployeeOption, Member, TaskStats, WorkTask } from '@/db/store';
 import { OWNER_PHONES } from '@/lib/access';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -45,7 +45,15 @@ type DashboardProps = {
   currentUser: Member;
   cards: MemberTasks[];
   employees: Member[];
+  employeeOptions: EmployeeOption[];
   accessCredentials: AccessCredential[];
+  employeeTotal: number;
+  filteredEmployeeTotal: number;
+  employeeSearch: string;
+  jobFilter: string;
+  employeePage: number;
+  employeePageCount: number;
+  taskStats: TaskStats;
   date: string;
   dateLabel: string;
   previousDate: string;
@@ -60,7 +68,7 @@ const notices: Record<string, string> = {
   'funcionario-removido': 'Funcionário removido da equipe ativa.',
   'acesso-atualizado': 'Celular e senha de acesso atualizados.',
   'erro-tarefa': 'Não foi possível adicionar a tarefa. Tente novamente.',
-  'erro-funcionario': 'Não foi possível adicionar. Confira se o celular já está cadastrado ou se a equipe chegou a 5 pessoas.',
+  'erro-funcionario': 'Não foi possível adicionar. Confira se o celular já está cadastrado.',
   'erro-acesso': 'Não foi possível atualizar. Confira o celular e tente novamente.',
   'dados-invalidos': 'Confira os campos preenchidos e tente novamente.',
 };
@@ -69,7 +77,15 @@ export function Dashboard({
   currentUser,
   cards,
   employees,
+  employeeOptions,
   accessCredentials,
+  employeeTotal,
+  filteredEmployeeTotal,
+  employeeSearch,
+  jobFilter,
+  employeePage,
+  employeePageCount,
+  taskStats,
   date,
   dateLabel,
   previousDate,
@@ -79,12 +95,10 @@ export function Dashboard({
   const isOwner = currentUser.role === 'owner';
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [teamDialogOpen, setTeamDialogOpen] = useState(false);
-  const [selectedEmployee, setSelectedEmployee] = useState(employees[0]?.id ?? '');
-  const allTasks = cards.flatMap((card) => card.tasks);
-  const completed = allTasks.filter((task) => task.status === 'done').length;
+  const [selectedEmployee, setSelectedEmployee] = useState(employeeOptions[0]?.id ?? '');
 
   function openTaskDialog(memberId?: string) {
-    setSelectedEmployee(memberId ?? employees[0]?.id ?? '');
+    setSelectedEmployee(memberId ?? employeeOptions[0]?.id ?? '');
     setTaskDialogOpen(true);
   }
 
@@ -161,7 +175,7 @@ export function Dashboard({
                 size="lg"
                 className="h-11 rounded-xl px-4 shadow-sm"
                 onClick={() => openTaskDialog()}
-                disabled={employees.length === 0}
+                disabled={employeeOptions.length === 0}
               >
                 <Plus /> Nova tarefa
               </Button>
@@ -173,22 +187,38 @@ export function Dashboard({
           <div className="flex items-center gap-3 rounded-2xl border border-brand/10 bg-white p-4 shadow-[0_8px_24px_rgb(90_45_45/4%)]">
             <span className="grid size-10 place-items-center rounded-xl bg-blush/25 text-brand"><Users className="size-5" /></span>
             <div>
-              <p className="text-2xl font-semibold tracking-tight">{isOwner ? `${employees.length}/5` : '1'}</p>
-              <p className="text-xs text-muted-foreground">{isOwner ? 'funcionários cadastrados' : 'lista pessoal'}</p>
+              <p className="text-2xl font-semibold tracking-tight">{isOwner ? employeeTotal : '1'}</p>
+              <p className="text-xs text-muted-foreground">{isOwner ? 'funcionários ativos' : 'lista pessoal'}</p>
             </div>
           </div>
           <div className="flex items-center gap-3 rounded-2xl border border-brand/10 bg-white p-4 shadow-[0_8px_24px_rgb(90_45_45/4%)]">
             <span className="grid size-10 place-items-center rounded-xl bg-[#e8f3ec] text-[#467158]"><CheckCircle2 className="size-5" /></span>
             <div>
-              <p className="text-2xl font-semibold tracking-tight">{completed} <span className="text-sm font-normal text-muted-foreground">de {allTasks.length}</span></p>
+              <p className="text-2xl font-semibold tracking-tight">{taskStats.completed} <span className="text-sm font-normal text-muted-foreground">de {taskStats.total}</span></p>
               <p className="text-xs text-muted-foreground">tarefas concluídas</p>
             </div>
           </div>
         </section>
 
         <section>
+          {isOwner ? (
+            <form method="GET" className="mb-4 grid gap-2 rounded-2xl border border-brand/10 bg-white p-3 shadow-xs sm:grid-cols-[minmax(0,1fr)_220px_auto_auto] sm:items-center">
+              <input type="hidden" name="date" value={date} />
+              <Input name="busca" type="search" defaultValue={employeeSearch} placeholder="Buscar por nome ou celular" aria-label="Buscar funcionário" className="h-11" />
+              <select name="funcao" defaultValue={jobFilter} aria-label="Filtrar por função" className="h-11 w-full rounded-lg border border-input bg-white px-3 text-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/20">
+                <option value="">Todas as funções</option>
+                <option value="Produção">Produção</option>
+                <option value="Atendimento + produção">Atendimento + produção</option>
+              </select>
+              <Button type="submit" variant="outline" className="h-11">Filtrar</Button>
+              {(employeeSearch || jobFilter) ? <Button variant="ghost" className="h-11" render={<a href={`/?date=${date}`} />}>Limpar</Button> : null}
+            </form>
+          ) : null}
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="font-heading text-lg font-semibold">{isOwner ? 'Equipe' : 'Afazeres'}</h2>
+            <div>
+              <h2 className="font-heading text-lg font-semibold">{isOwner ? 'Equipe' : 'Afazeres'}</h2>
+              {isOwner && (employeeSearch || jobFilter) ? <p className="text-sm text-muted-foreground">{filteredEmployeeTotal} resultado(s) encontrado(s)</p> : null}
+            </div>
             <div className="flex items-center gap-1 rounded-xl border border-brand/10 bg-white p-1 shadow-xs">
               <a aria-label="Dia anterior" href={`/?date=${previousDate}`} className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"><ChevronLeft className="size-4" /></a>
               <form method="GET" className="flex items-center gap-1">
@@ -203,9 +233,9 @@ export function Dashboard({
             <div className="grid min-h-72 place-items-center rounded-2xl border border-dashed border-brand/20 bg-white/55 p-6 text-center">
               <div className="max-w-sm">
                 <span className="mx-auto mb-4 grid size-12 place-items-center rounded-2xl bg-blush/20 text-brand"><UserPlus className="size-6" /></span>
-                <h3 className="font-heading text-xl font-semibold">Cadastre a equipe para começar</h3>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">Adicione os cinco funcionários pelo nome e celular. Depois, as tarefas poderão ser distribuídas individualmente.</p>
-                <Button className="mt-5" onClick={() => setTeamDialogOpen(true)}><UserPlus /> Adicionar funcionário</Button>
+                <h3 className="font-heading text-xl font-semibold">{employeeTotal === 0 ? 'Cadastre a equipe para começar' : 'Nenhum funcionário encontrado'}</h3>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{employeeTotal === 0 ? 'Adicione funcionários pelo nome e celular. Depois, as tarefas poderão ser distribuídas individualmente.' : 'Ajuste a busca ou o filtro para encontrar a pessoa desejada.'}</p>
+                {employeeTotal === 0 ? <Button className="mt-5" onClick={() => setTeamDialogOpen(true)}><UserPlus /> Adicionar funcionário</Button> : <Button variant="outline" className="mt-5" render={<a href={`/?date=${date}`} />}>Limpar filtros</Button>}
               </div>
             </div>
           ) : (
@@ -215,6 +245,13 @@ export function Dashboard({
               ))}
             </div>
           )}
+          {isOwner && employeePageCount > 1 ? (
+            <nav aria-label="Paginação da equipe" className="mt-6 flex items-center justify-center gap-3">
+              <Button variant="outline" disabled={employeePage <= 1} render={employeePage > 1 ? <a href={employeePageHref(date, employeeSearch, jobFilter, employeePage - 1)} /> : undefined}><ChevronLeft /> Anterior</Button>
+              <span className="text-sm font-medium">Página {employeePage} de {employeePageCount}</span>
+              <Button variant="outline" disabled={employeePage >= employeePageCount} render={employeePage < employeePageCount ? <a href={employeePageHref(date, employeeSearch, jobFilter, employeePage + 1)} /> : undefined}>Próxima <ChevronRight /></Button>
+            </nav>
+          ) : null}
         </section>
       </div>
 
@@ -223,7 +260,7 @@ export function Dashboard({
           <TaskDialog
             open={taskDialogOpen}
             onOpenChange={setTaskDialogOpen}
-            employees={employees}
+            employees={employeeOptions}
             selectedEmployee={selectedEmployee}
             setSelectedEmployee={setSelectedEmployee}
             date={date}
@@ -296,7 +333,7 @@ function MemberCard({ member, date, isOwner, onAddTask }: { member: MemberTasks;
 function TaskDialog({ open, onOpenChange, employees, selectedEmployee, setSelectedEmployee, date }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  employees: Member[];
+  employees: EmployeeOption[];
   selectedEmployee: string;
   setSelectedEmployee: (id: string) => void;
   date: string;
@@ -340,7 +377,7 @@ function TeamDialog({ open, onOpenChange, currentUser, employees, accessCredenti
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Equipe</DialogTitle>
-          <DialogDescription>Cadastre até cinco funcionários. Todos os acessos exigem celular e senha.</DialogDescription>
+          <DialogDescription>Cadastre funcionários sem limite fixo. Para localizar e editar alguém, use a busca e os filtros do painel.</DialogDescription>
         </DialogHeader>
 
         <section className="rounded-xl border border-brand/10 bg-blush/10 p-4">
@@ -418,19 +455,19 @@ function TeamDialog({ open, onOpenChange, currentUser, employees, accessCredenti
           </div>
         ) : null}
         <div className="border-t border-brand/10 pt-4">
-          <h3 className="mb-3 text-sm font-semibold">Adicionar funcionário <span className="font-normal text-muted-foreground">({employees.length}/5)</span></h3>
+          <h3 className="mb-3 text-sm font-semibold">Adicionar funcionário <span className="font-normal text-muted-foreground">(sem limite fixo)</span></h3>
           <form action={addEmployeeAction} className="space-y-3">
             <input type="hidden" name="taskDate" value={date} />
-            <label className="grid gap-1.5 text-sm font-medium">Nome<Input name="name" required maxLength={80} placeholder="Nome completo" className="h-10" disabled={employees.length >= 5} /></label>
-            <label className="grid gap-1.5 text-sm font-medium">Celular de acesso<Input name="phone" type="tel" inputMode="numeric" autoComplete="tel" required maxLength={19} placeholder="(00) 00000-0000" className="h-10" disabled={employees.length >= 5} /></label>
-            <label className="grid gap-1.5 text-sm font-medium">Senha inicial<Input name="password" type="password" autoComplete="new-password" required minLength={6} maxLength={128} placeholder="Mínimo de 6 caracteres" className="h-10" disabled={employees.length >= 5} /></label>
+            <label className="grid gap-1.5 text-sm font-medium">Nome<Input name="name" required maxLength={80} placeholder="Nome completo" className="h-10" /></label>
+            <label className="grid gap-1.5 text-sm font-medium">Celular de acesso<Input name="phone" type="tel" inputMode="numeric" autoComplete="tel" required maxLength={19} placeholder="(00) 00000-0000" className="h-10" /></label>
+            <label className="grid gap-1.5 text-sm font-medium">Senha inicial<Input name="password" type="password" autoComplete="new-password" required minLength={6} maxLength={128} placeholder="Mínimo de 6 caracteres" className="h-10" /></label>
             <label className="grid gap-1.5 text-sm font-medium">Função
-              <select name="jobTitle" className="h-10 w-full rounded-lg border border-input bg-white px-3 text-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/20" disabled={employees.length >= 5}>
+              <select name="jobTitle" className="h-10 w-full rounded-lg border border-input bg-white px-3 text-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/20">
                 <option value="Produção">Produção</option>
                 <option value="Atendimento + produção">Atendimento + produção</option>
               </select>
             </label>
-            <Button type="submit" className="w-full" disabled={employees.length >= 5}><UserPlus /> Adicionar à equipe</Button>
+            <Button type="submit" className="w-full"><UserPlus /> Adicionar à equipe</Button>
           </form>
         </div>
       </DialogContent>
@@ -454,4 +491,11 @@ function formatPhone(phone: string) {
     return digits.replace(/^(55)(\d{2})(\d{5})(\d{4})$/, '+$1 ($2) $3-$4');
   }
   return phone;
+}
+
+function employeePageHref(date: string, search: string, jobFilter: string, page: number) {
+  const params = new URLSearchParams({ date, pagina: String(page) });
+  if (search) params.set('busca', search);
+  if (jobFilter) params.set('funcao', jobFilter);
+  return `/?${params.toString()}`;
 }
