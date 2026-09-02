@@ -2,12 +2,14 @@
 
 import { useState } from 'react';
 import {
+  ArrowLeft,
   CalendarDays,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Eye,
   LogOut,
   Plus,
   Trash2,
@@ -59,6 +61,7 @@ type DashboardProps = {
   previousDate: string;
   nextDate: string;
   notice?: string;
+  previewEmployeeId?: string;
 };
 
 const notices: Record<string, string> = {
@@ -91,8 +94,11 @@ export function Dashboard({
   previousDate,
   nextDate,
   notice,
+  previewEmployeeId,
 }: DashboardProps) {
   const isOwner = currentUser.role === 'owner';
+  const isEmployeePreview = Boolean(previewEmployeeId && !isOwner);
+  const dateBasePath = isEmployeePreview ? `/funcionario/${encodeURIComponent(previewEmployeeId!)}` : '/';
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [teamDialogOpen, setTeamDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(employeeOptions[0]?.id ?? '');
@@ -134,11 +140,17 @@ export function Dashboard({
                   <p className="truncate text-sm font-semibold">{currentUser.name}</p>
                   <p className="truncate text-xs text-muted-foreground">{isOwner ? 'Proprietário · acesso com senha' : currentUser.phone ? formatPhone(currentUser.phone) : 'Celular não configurado'}</p>
                 </div>
-                <form action={logoutAction}>
-                  <button type="submit" className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
-                    <LogOut className="size-4" /> Sair
-                  </button>
-                </form>
+                {isEmployeePreview ? (
+                  <a href={`/?date=${date}`} className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
+                    <ArrowLeft className="size-4" /> Voltar ao painel do dono
+                  </a>
+                ) : (
+                  <form action={logoutAction}>
+                    <button type="submit" className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
+                      <LogOut className="size-4" /> Sair
+                    </button>
+                  </form>
+                )}
               </div>
             </div>
           </div>
@@ -146,6 +158,19 @@ export function Dashboard({
       </header>
 
       <div className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+        {isEmployeePreview ? (
+          <aside className="mb-5 flex flex-col gap-3 rounded-2xl border border-brand/15 bg-blush/15 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand text-white"><Eye className="size-4" /></span>
+              <div>
+                <p className="text-sm font-semibold">Visualizando o painel de {currentUser.name}</p>
+                <p className="text-sm text-muted-foreground">Esta é a mesma lista de tarefas exibida para este funcionário.</p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" className="shrink-0 bg-white" render={<a href={`/?date=${date}`} />}><ArrowLeft /> Voltar ao painel do dono</Button>
+          </aside>
+        ) : null}
+
         {notice && notices[notice] ? (
           <output className="mb-5 block rounded-xl border border-brand/15 bg-blush/15 px-4 py-3 text-sm text-brand">
             {notices[notice]}
@@ -220,12 +245,12 @@ export function Dashboard({
               {isOwner && (employeeSearch || jobFilter) ? <p className="text-sm text-muted-foreground">{filteredEmployeeTotal} resultado(s) encontrado(s)</p> : null}
             </div>
             <div className="flex items-center gap-1 rounded-xl border border-brand/10 bg-white p-1 shadow-xs">
-              <a aria-label="Dia anterior" href={`/?date=${previousDate}`} className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"><ChevronLeft className="size-4" /></a>
+              <a aria-label="Dia anterior" href={`${dateBasePath}?date=${previousDate}`} className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"><ChevronLeft className="size-4" /></a>
               <form method="GET" className="flex items-center gap-1">
                 <Input aria-label="Escolher data" type="date" name="date" defaultValue={date} className="h-8 w-[138px] border-0 bg-transparent px-1 text-xs shadow-none focus-visible:ring-0" />
                 <Button type="submit" variant="ghost" size="xs">Ir</Button>
               </form>
-              <a aria-label="Próximo dia" href={`/?date=${nextDate}`} className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"><ChevronRight className="size-4" /></a>
+              <a aria-label="Próximo dia" href={`${dateBasePath}?date=${nextDate}`} className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"><ChevronRight className="size-4" /></a>
             </div>
           </div>
 
@@ -241,7 +266,7 @@ export function Dashboard({
           ) : (
             <div className={`grid gap-4 ${isOwner ? 'lg:grid-cols-2 xl:grid-cols-3' : 'mx-auto max-w-2xl'}`}>
               {cards.map((member) => (
-                <MemberCard key={member.id} member={member} date={date} isOwner={isOwner} onAddTask={() => openTaskDialog(member.id)} />
+                <MemberCard key={member.id} member={member} date={date} isOwner={isOwner} previewEmployeeId={previewEmployeeId} onAddTask={() => openTaskDialog(member.id)} />
               ))}
             </div>
           )}
@@ -272,7 +297,7 @@ export function Dashboard({
   );
 }
 
-function MemberCard({ member, date, isOwner, onAddTask }: { member: MemberTasks; date: string; isOwner: boolean; onAddTask: () => void }) {
+function MemberCard({ member, date, isOwner, previewEmployeeId, onAddTask }: { member: MemberTasks; date: string; isOwner: boolean; previewEmployeeId?: string; onAddTask: () => void }) {
   const completed = member.tasks.filter((task) => task.status === 'done').length;
   return (
     <article className="overflow-hidden rounded-2xl border border-brand/10 bg-white shadow-[0_12px_32px_rgb(90_45_45/5%)]">
@@ -293,6 +318,7 @@ function MemberCard({ member, date, isOwner, onAddTask }: { member: MemberTasks;
               <form action={toggleTaskAction}>
                 <input type="hidden" name="taskId" value={task.id} />
                 <input type="hidden" name="taskDate" value={date} />
+                {previewEmployeeId ? <input type="hidden" name="previewEmployeeId" value={previewEmployeeId} /> : null}
                 <button
                   type="submit"
                   aria-label={task.status === 'done' ? `Reabrir ${task.title}` : `Concluir ${task.title}`}
@@ -322,8 +348,9 @@ function MemberCard({ member, date, isOwner, onAddTask }: { member: MemberTasks;
         </div>
       )}
       {isOwner ? (
-        <div className="px-4 pb-4 pt-1 sm:px-5">
-          <Button variant="ghost" size="sm" className="w-full justify-start text-brand hover:bg-blush/15" onClick={onAddTask}><Plus /> Adicionar tarefa</Button>
+        <div className="grid grid-cols-2 gap-2 px-4 pb-4 pt-1 sm:px-5">
+          <Button variant="ghost" size="sm" className="justify-start text-brand hover:bg-blush/15" onClick={onAddTask}><Plus /> Adicionar tarefa</Button>
+          <Button variant="outline" size="sm" className="justify-center" render={<a href={`/funcionario/${encodeURIComponent(member.id)}?date=${date}`} />}><Eye /> Ver painel</Button>
         </div>
       ) : null}
     </article>

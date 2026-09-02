@@ -6,7 +6,7 @@ import hostingConfig from './.openai/hosting.json';
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   '00000000-0000-4000-8000-000000000000';
-const CLOUDFLARE_WORKER_NAME = 'docuras-thalita-divisao-trabalho';
+const CLOUDFLARE_WORKER_NAME = 'docuras-da-thalita-equipe';
 const CLOUDFLARE_D1_DATABASE_NAME =
   process.env.CLOUDFLARE_D1_DATABASE_NAME ?? 'docuras-thalita-db';
 const CLOUDFLARE_D1_DATABASE_ID =

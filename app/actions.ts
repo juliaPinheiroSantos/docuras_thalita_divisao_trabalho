@@ -100,9 +100,14 @@ export async function toggleTaskAction(formData: FormData) {
   const actor = await requireActor();
   const taskId = textValue(formData, 'taskId');
   const taskDate = validDate(textValue(formData, 'taskDate'));
+  const previewEmployeeId = textValue(formData, 'previewEmployeeId');
   if (!taskId || !taskDate) redirect('/');
   await toggleTask(taskId, actor);
   revalidatePath('/');
+  if (actor.role === 'owner' && validMemberId(previewEmployeeId)) {
+    revalidatePath(`/funcionario/${previewEmployeeId}`);
+    redirect(`/funcionario/${encodeURIComponent(previewEmployeeId)}?date=${taskDate}`);
+  }
   redirect(`/?date=${taskDate}`);
 }
 
@@ -200,4 +205,8 @@ function validDate(value: string): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const date = new Date(`${value}T12:00:00Z`);
   return Number.isNaN(date.getTime()) ? null : value;
+}
+
+function validMemberId(value: string) {
+  return /^[a-zA-Z0-9-]{1,80}$/.test(value);
 }
